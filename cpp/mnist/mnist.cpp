@@ -5,6 +5,31 @@
 #include <string>
 #include <vector>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// NOTE: This example does not yet compile from master. DataLoaders are WIP -- see https://github.com/pytorch/pytorch/pull/11918
+// Everything except the DataLoader is fine. You may have to write your own little dataloader, or rebase on that PR.
+
+
+
+
+
+
+
+
+
 struct Net : torch::nn::Module {
   Net()
       : conv1(torch::nn::Conv2dOptions(1, 10, /*kernel_size=*/5)),
@@ -58,7 +83,7 @@ void train(
     torch::optim::SGD& optimizer) {
   model.train();
   size_t batch_idx = 0;
-  data_loader.loop([&](torch::data::Example<>& batch) {
+  for (auto& batch : data_loader) {
     auto data = batch.data.to(device), labels = batch.label.to(device);
     optimizer.zero_grad();
     auto output = model.forward(data);
@@ -72,7 +97,7 @@ void train(
                 << data_loader.dataset_size() << "]\tLoss: " << loss.toCFloat()
                 << std::endl;
     }
-  });
+  }
 }
 
 template <typename DataLoader>
@@ -117,13 +142,13 @@ auto main(int argc, const char* argv[]) -> int {
   Net model;
   model.to(device);
 
-  auto train_loader = torch::data::data_loader(
+  auto train_loader = torch::data::make_data_loader(
       torch::data::datasets::MNIST(options.data_root, /*train=*/true)
           .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
           .map(torch::data::transforms::Stack<>()),
       torch::data::DataLoaderOptions().batch_size(options.batch_size));
 
-  auto test_loader = torch::data::data_loader(
+  auto test_loader = torch::data::make_data_loader(
       torch::data::datasets::MNIST(options.data_root, /*train=*/false)
           .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
           .map(torch::data::transforms::Stack<>()),
