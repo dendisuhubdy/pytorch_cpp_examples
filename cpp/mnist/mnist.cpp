@@ -5,31 +5,6 @@
 #include <string>
 #include <vector>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// NOTE: This example does not yet compile from master. DataLoaders are WIP -- see https://github.com/pytorch/pytorch/pull/11918
-// Everything except the DataLoader is fine. You may have to write your own little dataloader, or rebase on that PR.
-
-
-
-
-
-
-
-
-
 struct Net : torch::nn::Module {
   Net()
       : conv1(torch::nn::Conv2dOptions(1, 10, /*kernel_size=*/5)),
@@ -80,50 +55,62 @@ void train(
     Net& model,
     torch::Device device,
     DataLoader& data_loader,
-    torch::optim::SGD& optimizer) {
+    torch::optim::SGD& optimizer,
+    size_t dataset_size) {
   model.train();
   size_t batch_idx = 0;
   for (auto& batch : data_loader) {
-    auto data = batch.data.to(device), labels = batch.label.to(device);
+    auto data = batch.data.to(device), targets = batch.target.to(device);
     optimizer.zero_grad();
     auto output = model.forward(data);
-    auto loss = torch::nll_loss(output, labels);
+    auto loss = torch::nll_loss(output, targets);
     loss.backward();
     optimizer.step();
 
     if (batch_idx++ % options.log_interval == 0) {
       std::cout << "Train Epoch: " << epoch << " ["
-                << batch_idx * batch.data.size(0) << "/"
-                << data_loader.dataset_size() << "]\tLoss: " << loss.toCFloat()
-                << std::endl;
+                << batch_idx * batch.data.size(0) << "/" << dataset_size
+                << "]\tLoss: " << loss.template item<float>() << std::endl;
     }
   }
 }
 
 template <typename DataLoader>
-void test(Net& model, torch::Device device, DataLoader& data_loader) {
+void test(
+    Net& model,
+    torch::Device device,
+    DataLoader& data_loader,
+    size_t dataset_size) {
   torch::NoGradGuard no_grad;
   model.eval();
   double test_loss = 0;
   int32_t correct = 0;
-  data_loader.loop([&](torch::data::Example<>& batch) {
-    auto data = batch.data.to(device), labels = batch.label.to(device);
+  for (const auto& batch : data_loader) {
+    auto data = batch.data.to(device), targets = batch.target.to(device);
     auto output = model.forward(data);
     test_loss += torch::nll_loss(
                      output,
-                     labels,
+                     targets,
                      /*weight=*/{},
                      Reduction::Sum)
-                     .toCFloat();
+                     .template item<float>();
     auto pred = output.argmax(1);
-    correct += pred.eq(labels).sum().toCInt();
-  });
+    correct += pred.eq(targets).sum().template item<int64_t>();
+  }
 
-  test_loss /= data_loader.dataset_size();
+  test_loss /= dataset_size;
   std::cout << "Test set: Average loss: " << test_loss
-            << ", Accuracy: " << correct << "/" << data_loader.dataset_size()
-            << std::endl;
+            << ", Accuracy: " << correct << "/" << dataset_size << std::endl;
 }
+
+struct Normalize : public torch::data::transforms::TensorTransform<> {
+  Normalize(float mean, float stddev)
+      : mean_(torch::tensor(mean)), stddev_(torch::tensor(stddev)) {}
+  torch::Tensor operator()(torch::Tensor input) {
+    return input.sub_(mean_).div_(stddev_);
+  }
+  torch::Tensor mean_, stddev_;
+};
 
 auto main(int argc, const char* argv[]) -> int {
   torch::manual_seed(0);
@@ -142,24 +129,34 @@ auto main(int argc, const char* argv[]) -> int {
   Net model;
   model.to(device);
 
+  auto train_dataset =
+      torch::data::datasets::MNIST(
+          options.data_root, torch::data::datasets::MNIST::Mode::kTrain)
+          .map(Normalize(0.1307, 0.3081))
+          .map(torch::data::transforms::TensorLambda<>(
+              [](torch::Tensor t) { return t.unsqueeze_(0); }))
+          .map(torch::data::transforms::Stack<>());
+  const auto dataset_size = train_dataset.size();
+
   auto train_loader = torch::data::make_data_loader(
-      torch::data::datasets::MNIST(options.data_root, /*train=*/true)
-          .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-          .map(torch::data::transforms::Stack<>()),
-      torch::data::DataLoaderOptions().batch_size(options.batch_size));
+      std::move(train_dataset), options.batch_size);
 
   auto test_loader = torch::data::make_data_loader(
-      torch::data::datasets::MNIST(options.data_root, /*train=*/false)
-          .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+      torch::data::datasets::MNIST(
+          options.data_root, torch::data::datasets::MNIST::Mode::kTest)
+          .map(Normalize(0.1307, 0.3081))
+          .map(torch::data::transforms::TensorLambda<>(
+              [](torch::Tensor t) { return t.unsqueeze_(0); }))
           .map(torch::data::transforms::Stack<>()),
-      torch::data::DataLoaderOptions().batch_size(options.batch_size));
+      options.batch_size);
 
   torch::optim::SGD optimizer(
       model.parameters(),
       torch::optim::SGDOptions(options.lr).momentum(options.momentum));
 
   for (size_t epoch = 1; epoch <= options.epochs; ++epoch) {
-    train(epoch, options, model, device, *train_loader, optimizer);
-    test(model, device, *test_loader);
+    train(
+        epoch, options, model, device, *train_loader, optimizer, dataset_size);
+    test(model, device, *test_loader, dataset_size);
   }
 }
