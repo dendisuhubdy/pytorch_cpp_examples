@@ -133,8 +133,6 @@ auto main(int argc, const char* argv[]) -> int {
       torch::data::datasets::MNIST(
           options.data_root, torch::data::datasets::MNIST::Mode::kTrain)
           .map(Normalize(0.1307, 0.3081))
-          .map(torch::data::transforms::TensorLambda<>(
-              [](torch::Tensor t) { return t.unsqueeze_(0); }))
           .map(torch::data::transforms::Stack<>());
   const auto dataset_size = train_dataset.size();
 
@@ -145,8 +143,6 @@ auto main(int argc, const char* argv[]) -> int {
       torch::data::datasets::MNIST(
           options.data_root, torch::data::datasets::MNIST::Mode::kTest)
           .map(Normalize(0.1307, 0.3081))
-          .map(torch::data::transforms::TensorLambda<>(
-              [](torch::Tensor t) { return t.unsqueeze_(0); }))
           .map(torch::data::transforms::Stack<>()),
       options.batch_size);
 
