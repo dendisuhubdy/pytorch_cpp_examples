@@ -49,14 +49,7 @@ struct Options {
 };
 
 template <typename DataLoader>
-void train(
-    int32_t epoch,
-    const Options& options,
-    Net& model,
-    torch::Device device,
-    DataLoader& data_loader,
-    torch::optim::SGD& optimizer,
-    size_t dataset_size) {
+void train(int32_t epoch, const Options& options, Net& model, torch::Device device, DataLoader& data_loader, torch::optim::SGD& optimizer, size_t dataset_size) {
   model.train();
   size_t batch_idx = 0;
   for (auto& batch : data_loader) {
@@ -76,11 +69,7 @@ void train(
 }
 
 template <typename DataLoader>
-void test(
-    Net& model,
-    torch::Device device,
-    DataLoader& data_loader,
-    size_t dataset_size) {
+void test(Net& model, torch::Device device, DataLoader& data_loader, size_t dataset_size) {
   torch::NoGradGuard no_grad;
   model.eval();
   double test_loss = 0;
@@ -151,8 +140,7 @@ auto main(int argc, const char* argv[]) -> int {
       torch::optim::SGDOptions(options.lr).momentum(options.momentum));
 
   for (size_t epoch = 1; epoch <= options.epochs; ++epoch) {
-    train(
-        epoch, options, model, device, *train_loader, optimizer, dataset_size);
-    test(model, device, *test_loader, dataset_size);
+    train(epoch, options, model, device, *train_loader, optimizer, dataset_size.value());
+    test(model, device, *test_loader, dataset_size.value());
   }
 }
